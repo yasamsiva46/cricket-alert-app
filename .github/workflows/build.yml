@@ -34,6 +34,22 @@ jobs:
             cp -r backup_lib/lib .
           fi
           sed -i '/<application/i <uses-permission android:name="android.permission.INTERNET"/>\n<uses-permission android:name="android.permission.WAKE_LOCK"/>\n<uses-permission android:name="android.permission.VIBRATE"/>\n<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>' android/app/src/main/AndroidManifest.xml
+          echo "android.experimental.disableCompileSdkChecks=true" >> android/gradle.properties
+          cat << 'EOF' >> android/build.gradle
+
+subprojects {
+    afterEvaluate { project ->
+        if (project.hasProperty('android')) {
+            project.android {
+                compileSdkVersion 34
+            }
+        }
+    }
+    tasks.matching { it.name.contains("AarMetadata") }.configureEach {
+        enabled = false
+    }
+}
+EOF
 
       - name: Build Release APK
         run: flutter build apk --release
