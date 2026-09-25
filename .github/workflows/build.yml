@@ -13,7 +13,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Java
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
@@ -28,7 +28,7 @@ jobs:
         run: |
           mkdir -p backup_lib
           cp -r lib backup_lib/ 2>/dev/null || true
-          flutter create --org com.cricket.alert .
+          flutter create --project-name cricket_alert_app --org com.cricket.alert .
           flutter pub add http flutter_ringtone_player
           if [ -d backup_lib/lib ]; then
             cp -r backup_lib/lib .
