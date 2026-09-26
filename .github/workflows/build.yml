@@ -37,7 +37,10 @@ jobs:
           find android/ -name "build.gradle*" -exec sed -i -E 's/minSdk(Version)? =? flutter\.minSdkVersion/minSdk = 21/g' {} +
 
       - name: Install Dependencies
-        run: flutter pub get
+        run: |
+          flutter pub get
+          # ఈ లైన్ proguard ఎర్రర్‌ను ఆటోమేటిక్‌గా సరిచేస్తుంది
+          find /home/runner/.pub-cache -name "build.gradle*" -exec sed -i 's/proguard-android\.txt/proguard-android-optimize\.txt/g' {} +
 
       - name: Build APK
         run: flutter build apk --release
