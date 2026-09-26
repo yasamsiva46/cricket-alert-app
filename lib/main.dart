@@ -34,6 +34,7 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
   bool isAlarmRinging = false;
   double? targetRate;
   String targetTeam = "";
+  String selectedCondition = ">="; // డిఫాల్ట్‌గా '>= దాటినా/ఎక్కువైనా'
   Timer? _rateCheckTimer;
   String currentStatus = "వెబ్‌సైట్ సిద్ధంగా ఉంది";
   String matchedInfo = "";
@@ -47,11 +48,10 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
     _beepBytes = _generateLoudBeepWav();
     _silentBytes = _generateSilentWav();
 
-    // స్క్రీన్ లాక్ అయినా, సైలెంట్‌లో ఉన్నా ఆడియో ఆగకుండా రన్ అయ్యేలా ఆండ్రాయిడ్ కాంటెక్స్ట్ సెట్టింగ్
     AudioPlayer.global.setAudioContext(AudioContext(
       android: AudioContextAndroid(
         isSpeakerphoneOn: true,
-        stayAwake: true, // లాక్ స్క్రీన్‌లో కూడా CPU నిద్రపోకుండా ఉంచుతుంది
+        stayAwake: true,
         contentType: AndroidContentType.music,
         usageType: AndroidUsageType.alarm,
         audioMode: AndroidAudioMode.normal,
@@ -64,7 +64,6 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
     _silentKeepAlivePlayer.setVolume(0.01);
   }
 
-  // 1. నిశ్శబ్ద ఆడియో - స్క్రీన్ ఆఫ్ అయినా ప్రాసెసర్‌ను మేల్కొల్పి ఉంచడానికి
   Uint8List _generateSilentWav() {
     const int sampleRate = 44100;
     const double duration = 1.0;
@@ -73,10 +72,10 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
     final int fileSize = 36 + dataSize;
 
     final byteData = ByteData(44 + dataSize);
-    byteData.setUint8(0, 0x52); byteData.setUint8(1, 0x49); byteData.setUint8(2, 0x46); byteData.setUint8(3, 0x46); // RIFF
+    byteData.setUint8(0, 0x52); byteData.setUint8(1, 0x49); byteData.setUint8(2, 0x46); byteData.setUint8(3, 0x46);
     byteData.setUint32(4, fileSize, Endian.little);
-    byteData.setUint8(8, 0x57); byteData.setUint8(9, 0x41); byteData.setUint8(10, 0x56); byteData.setUint8(11, 0x45); // WAVE
-    byteData.setUint8(12, 0x66); byteData.setUint8(13, 0x6D); byteData.setUint8(14, 0x74); byteData.setUint8(15, 0x20); // fmt
+    byteData.setUint8(8, 0x57); byteData.setUint8(9, 0x41); byteData.setUint8(10, 0x56); byteData.setUint8(11, 0x45);
+    byteData.setUint8(12, 0x66); byteData.setUint8(13, 0x6D); byteData.setUint8(14, 0x74); byteData.setUint8(15, 0x20);
     byteData.setUint32(16, 16, Endian.little);
     byteData.setUint16(20, 1, Endian.little);
     byteData.setUint16(22, 1, Endian.little);
@@ -84,12 +83,11 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
     byteData.setUint32(28, sampleRate * 2, Endian.little);
     byteData.setUint16(32, 2, Endian.little);
     byteData.setUint16(34, 16, Endian.little);
-    byteData.setUint8(36, 0x64); byteData.setUint8(37, 0x61); byteData.setUint8(38, 0x74); byteData.setUint8(39, 0x61); // data
+    byteData.setUint8(36, 0x64); byteData.setUint8(37, 0x61); byteData.setUint8(38, 0x74); byteData.setUint8(39, 0x61);
     byteData.setUint32(40, dataSize, Endian.little);
     return byteData.buffer.asUint8List();
   }
 
-  // 2. లౌడ్ బీప్ బజర్ సౌండ్
   Uint8List _generateLoudBeepWav() {
     const int sampleRate = 44100;
     const double duration = 1.0;
@@ -130,7 +128,6 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
     WakelockPlus.enable();
     _rateCheckTimer?.cancel();
 
-    // లాక్ స్క్రీన్ మరియు బ్యాక్‌గ్రౌండ్ కోసం సైలెంట్ ఆడియో స్టార్ట్
     if (_silentBytes != null) {
       _silentKeepAlivePlayer.play(BytesSource(_silentBytes!));
     }
@@ -139,11 +136,13 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
       if (webViewController == null || !isAlarmSet || targetRate == null) return;
 
       String teamQuery = targetTeam.replaceAll("'", "\\'").toLowerCase();
+      String cond = selectedCondition;
 
       var result = await webViewController!.evaluateJavascript(source: """
         (function() {
           let target = $targetRate;
           let filterTeam = '$teamQuery';
+          let condition = '$cond';
 
           let rows = document.querySelectorAll('tr, .runner-row, div[class*="runner"], div[class*="market-row"]');
 
@@ -170,6 +169,7 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
               }
             }
 
+            // అన్ని Back / Lay రేట్లను పరిశీలించడం
             let oddsBoxes = row.querySelectorAll('button, td, div[class*="back"], div[class*="lay"]');
 
             for (let box of oddsBoxes) {
@@ -180,14 +180,25 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
               let mainRateStr = lines[0];
               let rateVal = parseFloat(mainRateStr);
 
-              if (!isNaN(rateVal) && Math.abs(rateVal - target) < 0.001) {
-                let isLay = /lay|pink/i.test(box.className) || /lay|pink/i.test(box.parentElement?.className || '');
-                return JSON.stringify({
-                  found: true,
-                  team: teamName || filterTeam.toUpperCase(),
-                  type: isLay ? "Lay" : "Back",
-                  rate: mainRateStr
-                });
+              if (!isNaN(rateVal)) {
+                let isMatch = false;
+                if (condition === '>=') {
+                  isMatch = (rateVal >= (target - 0.0001));
+                } else if (condition === '<=') {
+                  isMatch = (rateVal <= (target + 0.0001));
+                } else {
+                  isMatch = Math.abs(rateVal - target) < 0.001;
+                }
+
+                if (isMatch) {
+                  let isLay = /lay|pink/i.test(box.className) || /lay|pink/i.test(box.parentElement?.className || '');
+                  return JSON.stringify({
+                    found: true,
+                    team: teamName || filterTeam.toUpperCase(),
+                    type: isLay ? "Lay" : "Back",
+                    rate: mainRateStr
+                  });
+                }
               }
             }
           }
@@ -207,7 +218,6 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
   }
 
   void triggerAlarm(String team, String type, String rate) async {
-    // సైలెంట్ ట్రాక్ ఆపి, పెద్ద అలారమ్ ఆన్ చేయడం
     await _silentKeepAlivePlayer.stop();
 
     setState(() {
@@ -247,6 +257,8 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
 
   @override
   Widget build(BuildContext context) {
+    String condSymbol = selectedCondition == ">=" ? "≥" : (selectedCondition == "<=" ? "≤" : "=");
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.blueGrey[900],
@@ -261,19 +273,20 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
       body: Column(
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
             color: isAlarmRinging ? Colors.red[800] : Colors.blueGrey[800],
             child: Column(
               children: [
                 Row(
                   children: [
+                    // 1. టీం బాక్స్
                     Expanded(
                       flex: 4,
                       child: TextField(
                         controller: _teamController,
                         style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
                         decoration: InputDecoration(
-                          hintText: "టీం (ఉదా: IND)",
+                          hintText: "టీం (lea)",
                           hintStyle: const TextStyle(color: Colors.white54, fontSize: 11),
                           filled: true,
                           fillColor: Colors.black38,
@@ -283,15 +296,55 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 4),
+
+                    // 2. కండిషన్ ఎంపిక (>= దాటినా, <= పడిపోయినా, = సరిగ్గా అదే)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.black38,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.white24),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: selectedCondition,
+                          dropdownColor: Colors.grey[900],
+                          style: const TextStyle(color: Colors.yellowAccent, fontWeight: FontWeight.bold, fontSize: 14),
+                          icon: const Icon(Icons.arrow_drop_down, color: Colors.white70, size: 16),
+                          selectedItemBuilder: (BuildContext context) {
+                            return [
+                              const Center(child: Text("≥", style: TextStyle(color: Colors.yellowAccent, fontWeight: FontWeight.bold, fontSize: 15))),
+                              const Center(child: Text("≤", style: TextStyle(color: Colors.yellowAccent, fontWeight: FontWeight.bold, fontSize: 15))),
+                              const Center(child: Text("=", style: TextStyle(color: Colors.yellowAccent, fontWeight: FontWeight.bold, fontSize: 15))),
+                            ];
+                          },
+                          items: const [
+                            DropdownMenuItem(value: ">=", child: Text("≥ దాటినా / ఎక్కువ")),
+                            DropdownMenuItem(value: "<=", child: Text("≤ తగ్గినా / పడినా")),
+                            DropdownMenuItem(value: "==", child: Text("= ఖచ్చితంగా అదే")),
+                          ],
+                          onChanged: (val) {
+                            if (val != null) {
+                              setState(() {
+                                selectedCondition = val;
+                              });
+                            }
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+
+                    // 3. రేటు బాక్స్
                     Expanded(
-                      flex: 3,
+                      flex: 4,
                       child: TextField(
                         controller: _rateController,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
                         style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
                         decoration: InputDecoration(
-                          hintText: "రేటు (1.08)",
+                          hintText: "రేటు (1.20)",
                           hintStyle: const TextStyle(color: Colors.white54, fontSize: 11),
                           filled: true,
                           fillColor: Colors.black38,
@@ -301,12 +354,14 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 4),
+
+                    // 4. బటన్
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: isAlarmRinging ? Colors.black : (isAlarmSet ? Colors.orange[800] : Colors.green[700]),
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                       ),
                       onPressed: () {
                         if (isAlarmRinging) {
@@ -322,15 +377,15 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
                             targetTeam = _teamController.text.trim();
                             isAlarmSet = true;
                             currentStatus = targetTeam.isNotEmpty
-                                ? "🟢 $targetTeam వద్ద రేటు $targetRate కోసం ట్రాకింగ్ (బ్యాక్‌గ్రౌండ్‌లో రన్ అవుతుంది)..."
-                                : "🟢 రేటు $targetRate కోసం ట్రాకింగ్ (బ్యాక్‌గ్రౌండ్‌లో రన్ అవుతుంది)...";
+                                ? "🟢 $targetTeam వద్ద రేటు $condSymbol $targetRate కోసం ట్రాకింగ్..."
+                                : "🟢 రేటు $condSymbol $targetRate కోసం ట్రాకింగ్...";
                           });
                           startMonitoring();
                         }
                       },
                       child: Text(
                         isAlarmRinging ? "STOP" : (isAlarmSet ? "CANCEL" : "SET"),
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
                       ),
                     ),
                   ],
