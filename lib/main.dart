@@ -34,7 +34,7 @@ class _CrexOddsAlarmAppState extends State<CrexOddsAlarmApp> {
   bool isAlarmRinging = false;
   double? targetRate;
   String targetTeam = "";
-  String selectedCondition = ">="; // డిఫాల్ట్‌గా '↑' (పెరిగితే)
+  String selectedCondition = ">=";
   Timer? _rateCheckTimer;
   String currentStatus = "Crex సిద్ధంగా ఉంది";
   String matchedInfo = "";
@@ -133,82 +133,94 @@ class _CrexOddsAlarmAppState extends State<CrexOddsAlarmApp> {
     }
 
     _rateCheckTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
-      if (webViewController == null || !isAlarmSet || targetRate == null) return;
+      if (webViewController == null || !isAlarmSet) return;
+      if (targetTeam.isEmpty && targetRate == null) return;
 
       String teamQuery = targetTeam.replaceAll("'", "\\'").toLowerCase().trim();
       String cond = selectedCondition;
+      String targetParam = targetRate != null ? targetRate.toString() : "null";
 
-      // Dart స్ట్రింగ్ ఎర్రర్స్ రాకుండా Raw JS స్క్రిప్ట్
       String jsScript = r'''
         (function() {
           let target = __TARGET__;
           let filterTeam = '__TEAM__';
           let condition = '__COND__';
 
-          let allElements = Array.from(document.querySelectorAll('*'));
-          let matchingTeamNodes = [];
+          let allContainers = Array.from(document.querySelectorAll('div, tr, li'));
+          let candidateRows = [];
 
-          for (let el of allElements) {
-            if (el.children.length === 0 || el.children.length <= 2) {
-              let txt = el.innerText ? el.innerText.trim().toLowerCase() : '';
-              if (filterTeam.length > 0 && (txt === filterTeam || (txt.length >= 2 && txt.includes(filterTeam)))) {
-                let isStats = el.closest('table, tbody, [class*="scorecard"], [class*="batter"], [class*="bowler"]');
-                if (!isStats) {
-                  matchingTeamNodes.push(el);
-                }
-              }
+          for (let el of allContainers) {
+            if (el.children.length === 0 || el.children.length > 12) continue;
+
+            let fullTxt = el.innerText ? el.innerText.trim() : '';
+            if (!fullTxt) continue;
+
+            if (/CRR|Scorecard|Commentary|Batter|Bowler|P'ship|GET APP|Match info/i.test(fullTxt)) {
+              continue;
             }
-          }
 
-          if (filterTeam.length > 0 && matchingTeamNodes.length === 0) {
-            return JSON.stringify({ found: false });
-          }
-
-          let targetRows = [];
-          if (matchingTeamNodes.length > 0) {
-            for (let node of matchingTeamNodes) {
-              let p = node.parentElement;
-              for (let i = 0; i < 4; i++) {
-                if (!p || p === document.body) break;
-                let text = p.innerText.trim();
-                if (!/batter|bowler|overs|p'ship/i.test(text)) {
-                  targetRows.push(p);
-                  break;
-                }
-                p = p.parentElement;
-              }
-            }
-          } else {
-            targetRows = [document.body];
-          }
-
-          for (let row of targetRows) {
-            let potentialOdds = Array.from(row.querySelectorAll('*')).filter(e => {
-              if (e.children.length > 0) return false;
-              let val = e.innerText ? e.innerText.trim() : '';
-              if (!val || val.length > 5 || val.indexOf('-') !== -1) return false;
-              let n = Number(val);
-              return !isNaN(n) && n > 0;
+            let oddsLeaves = Array.from(el.querySelectorAll('*')).filter(leaf => {
+              if (leaf.children.length > 0) return false;
+              let v = leaf.innerText ? leaf.innerText.trim() : '';
+              return /^[0-9]+(\.[0-9]+)?$/.test(v) && v.length <= 5 && !v.includes('-');
             });
 
-            for (let box of potentialOdds) {
-              let num = parseFloat(box.innerText.trim());
+            if (oddsLeaves.length >= 1 && oddsLeaves.length <= 4) {
+              candidateRows.push({
+                container: el,
+                leaves: oddsLeaves,
+                text: fullTxt.toLowerCase()
+              });
+            }
+          }
+
+          candidateRows.sort((a, b) => a.text.length - b.text.length);
+
+          for (let row of candidateRows) {
+            let teamOnlyText = row.text;
+            row.leaves.forEach(l => {
+              teamOnlyText = teamOnlyText.replace(l.innerText.trim().toLowerCase(), '');
+            });
+
+            let words = teamOnlyText.split(/[^a-zA-Z0-9]+/).filter(w => w.length > 0);
+            
+            let isTeamMatched = false;
+            if (filterTeam.length > 0) {
+              isTeamMatched = words.some(w => w === filterTeam || (filterTeam.length >= 3 && w.includes(filterTeam)));
+              if (!isTeamMatched) {
+                continue;
+              }
+            }
+
+            for (let box of row.leaves) {
+              let valStr = box.innerText.trim();
+              let num = parseFloat(valStr);
               if (isNaN(num)) continue;
 
+              // 1. కేవలం టీమ్ మాత్రమే సెట్ చేసినప్పుడు (రేటు ఏదైనా సరే మోగుతుంది)
+              if (target === null) {
+                return JSON.stringify({
+                  found: true,
+                  team: filterTeam.toUpperCase() || words[0]?.toUpperCase() || 'CREX',
+                  rate: valStr,
+                  onlyTeam: true
+                });
+              }
+
+              // 2. టీమ్ + రేటు రెండూ సెట్ చేసినప్పుడు
               let isMatch = false;
               if (condition === '>=') {
-                // ↑ రేటు పెరిగితే లేదా దాటితే
                 isMatch = (num >= (target - 0.0001));
               } else if (condition === '<=') {
-                // ↓ రేటు తగ్గితే లేదా పడిపోతే
                 isMatch = (num > 0 && num <= (target + 0.0001));
               }
 
               if (isMatch) {
                 return JSON.stringify({
                   found: true,
-                  team: filterTeam.toUpperCase() || 'CREX',
-                  rate: box.innerText.trim()
+                  team: filterTeam.toUpperCase() || words[0]?.toUpperCase() || 'CREX',
+                  rate: valStr,
+                  onlyTeam: false
                 });
               }
             }
@@ -217,7 +229,7 @@ class _CrexOddsAlarmAppState extends State<CrexOddsAlarmApp> {
           return JSON.stringify({ found: false });
         })();
       '''
-      .replaceAll('__TARGET__', targetRate.toString())
+      .replaceAll('__TARGET__', targetParam)
       .replaceAll('__TEAM__', teamQuery)
       .replaceAll('__COND__', cond);
 
@@ -227,20 +239,25 @@ class _CrexOddsAlarmAppState extends State<CrexOddsAlarmApp> {
         try {
           var data = jsonDecode(result.toString());
           if (data["found"] == true && !isAlarmRinging) {
-            triggerAlarm(data["team"], data["rate"]);
+            triggerAlarm(data["team"], data["rate"], data["onlyTeam"] == true);
           }
         } catch (_) {}
       }
     });
   }
 
-  void triggerAlarm(String team, String rate) async {
+  void triggerAlarm(String team, String rate, bool onlyTeam) async {
     await _silentKeepAlivePlayer.stop();
 
     setState(() {
       isAlarmRinging = true;
-      matchedInfo = "$team (రేటు: $rate)";
-      currentStatus = "🚨 రేటు వచ్చింది: $matchedInfo";
+      if (onlyTeam) {
+        matchedInfo = "$team లైవ్ రేట్లలోకి వచ్చింది! (రేటు: $rate)";
+        currentStatus = "🚨 $matchedInfo";
+      } else {
+        matchedInfo = "$team (రేటు: $rate)";
+        currentStatus = "🚨 రేటు వచ్చింది: $matchedInfo";
+      }
     });
 
     if (_beepBytes != null) {
@@ -289,7 +306,6 @@ class _CrexOddsAlarmAppState extends State<CrexOddsAlarmApp> {
       ),
       body: Column(
         children: [
-          // అలారమ్ కంట్రోలర్ బార్
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
             color: isAlarmRinging ? Colors.red[800] : Colors.blueGrey[800],
@@ -297,14 +313,14 @@ class _CrexOddsAlarmAppState extends State<CrexOddsAlarmApp> {
               children: [
                 Row(
                   children: [
-                    // 1. టీం బాక్స్ (ఉదా: RS)
+                    // 1. టీం బాక్స్
                     Expanded(
                       flex: 4,
                       child: TextField(
                         controller: _teamController,
                         style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
                         decoration: InputDecoration(
-                          hintText: "టీం (RS)",
+                          hintText: "టీం (BT/RS)",
                           hintStyle: const TextStyle(color: Colors.white54, fontSize: 11),
                           filled: true,
                           fillColor: Colors.black38,
@@ -316,7 +332,7 @@ class _CrexOddsAlarmAppState extends State<CrexOddsAlarmApp> {
                     ),
                     const SizedBox(width: 4),
 
-                    // 2. కేవలం రెండే ఆప్షన్లు: ↑ (పెరిగితే) లేదా ↓ (తగ్గితే)
+                    // 2. ↑ (పెరిగితే) / ↓ (తగ్గితే)
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6),
                       decoration: BoxDecoration(
@@ -387,7 +403,7 @@ class _CrexOddsAlarmAppState extends State<CrexOddsAlarmApp> {
                     ),
                     const SizedBox(width: 4),
 
-                    // 3. రేటు బాక్స్ (ఉదా: 20)
+                    // 3. రేటు బాక్స్ (ఆప్షనల్)
                     Expanded(
                       flex: 4,
                       child: TextField(
@@ -395,8 +411,8 @@ class _CrexOddsAlarmAppState extends State<CrexOddsAlarmApp> {
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
                         style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
                         decoration: InputDecoration(
-                          hintText: "రేటు (20)",
-                          hintStyle: const TextStyle(color: Colors.white54, fontSize: 11),
+                          hintText: "రేటు (ఆప్షనల్)",
+                          hintStyle: const TextStyle(color: Colors.white54, fontSize: 10),
                           filled: true,
                           fillColor: Colors.black38,
                           isDense: true,
@@ -407,7 +423,7 @@ class _CrexOddsAlarmAppState extends State<CrexOddsAlarmApp> {
                     ),
                     const SizedBox(width: 4),
 
-                    // 4. SET / STOP బటన్
+                    // 4. బటన్
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: isAlarmRinging ? Colors.black : (isAlarmSet ? Colors.orange[800] : Colors.green[700]),
@@ -420,20 +436,29 @@ class _CrexOddsAlarmAppState extends State<CrexOddsAlarmApp> {
                           return;
                         }
 
-                        double? entered = double.tryParse(_rateController.text.trim());
-                        if (entered != null) {
-                          FocusScope.of(context).unfocus();
-                          String arrowText = selectedCondition == ">=" ? "↑ పెరిగితే" : "↓ తగ్గితే";
-                          setState(() {
-                            targetRate = entered;
-                            targetTeam = _teamController.text.trim();
-                            isAlarmSet = true;
+                        String teamEntered = _teamController.text.trim();
+                        double? rateEntered = double.tryParse(_rateController.text.trim());
+
+                        if (teamEntered.isEmpty && rateEntered == null) {
+                          return;
+                        }
+
+                        FocusScope.of(context).unfocus();
+                        setState(() {
+                          targetRate = rateEntered;
+                          targetTeam = teamEntered;
+                          isAlarmSet = true;
+
+                          if (rateEntered == null) {
+                            currentStatus = "🟢 $targetTeam లైవ్ రేట్లలోకి రాగానే అలారమ్...";
+                          } else {
+                            String arrowText = selectedCondition == ">=" ? "↑ పెరిగితే" : "↓ తగ్గితే";
                             currentStatus = targetTeam.isNotEmpty
                                 ? "🟢 $targetTeam వద్ద రేటు $targetRate ($arrowText) అలారమ్..."
                                 : "🟢 రేటు $targetRate ($arrowText) అలారమ్...";
-                          });
-                          startMonitoring();
-                        }
+                          }
+                        });
+                        startMonitoring();
                       },
                       child: Text(
                         isAlarmRinging ? "STOP" : (isAlarmSet ? "CANCEL" : "SET"),
@@ -456,7 +481,6 @@ class _CrexOddsAlarmAppState extends State<CrexOddsAlarmApp> {
             ),
           ),
 
-          // Crex వెబ్‌సైట్
           Expanded(
             child: InAppWebView(
               initialUrlRequest: URLRequest(
