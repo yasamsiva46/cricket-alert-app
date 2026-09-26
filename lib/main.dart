@@ -42,7 +42,6 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
   Uint8List? _beepBytes;
   Uint8List? _silentBytes;
 
-  // Crex ప్రధాన వెబ్‌సైట్
   final String crexUrl = "https://crex.com/";
 
   @override
@@ -148,7 +147,7 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
           let condition = '$cond';
 
           let bookmakerEl = Array.from(document.querySelectorAll('*')).find(el => 
-            el.children.length === 0 && /^bookmaker$/i.test(el.innerText.trim())
+            el.children.length === 0 && el.innerText.trim().toLowerCase() === 'bookmaker'
           );
 
           let rows = document.querySelectorAll('tr, .runner-row, div[class*="runner"], div[class*="market-row"]');
