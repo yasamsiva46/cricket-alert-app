@@ -34,13 +34,16 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
   bool isAlarmRinging = false;
   double? targetRate;
   String targetTeam = "";
-  String selectedCondition = ">="; // డిఫాల్ట్‌గా '>= దాటినా/ఎక్కువైనా'
+  String selectedCondition = ">=";
   Timer? _rateCheckTimer;
   String currentStatus = "వెబ్‌సైట్ సిద్ధంగా ఉంది";
   String matchedInfo = "";
   
   Uint8List? _beepBytes;
   Uint8List? _silentBytes;
+
+  // Crex ప్రధాన వెబ్‌సైట్
+  final String crexUrl = "https://crex.com/";
 
   @override
   void initState() {
@@ -144,10 +147,20 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
           let filterTeam = '$teamQuery';
           let condition = '$cond';
 
+          let bookmakerEl = Array.from(document.querySelectorAll('*')).find(el => 
+            el.children.length === 0 && /^bookmaker$/i.test(el.innerText.trim())
+          );
+
           let rows = document.querySelectorAll('tr, .runner-row, div[class*="runner"], div[class*="market-row"]');
 
           for (let row of rows) {
             if (row.closest('.scoreboard, .match-header, .score, thead')) continue;
+            if (row.closest('[class*="bookmaker"], [id*="bookmaker"], [class*="fancy"]')) continue;
+            if (bookmakerEl) {
+              if (bookmakerEl.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING) {
+                continue;
+              }
+            }
 
             let teamName = "";
             let nameEl = row.querySelector('.runner-name, .team-name, .nation-name, span[class*="name"]');
@@ -157,7 +170,7 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
               let firstCol = row.children[0];
               if (firstCol) {
                 let txt = firstCol.innerText.trim().split(/\\r?\\n/)[0].trim();
-                if (txt && !/back|lay|max|cashout/i.test(txt)) {
+                if (txt && !/back|lay|max|cashout|bookmaker/i.test(txt)) {
                   teamName = txt;
                 }
               }
@@ -169,35 +182,47 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
               }
             }
 
-            // అన్ని Back / Lay రేట్లను పరిశీలించడం
-            let oddsBoxes = row.querySelectorAll('button, td, div[class*="back"], div[class*="lay"]');
+            let backBoxes = row.querySelectorAll('button[class*="back"], td[class*="back"], div[class*="back"]');
+            let mainBackBox = null;
 
-            for (let box of oddsBoxes) {
-              let text = box.innerText.trim();
-              if (!text) continue;
+            if (backBoxes.length > 0) {
+              mainBackBox = backBoxes[backBoxes.length - 1];
+            } else {
+              let allBoxes = row.querySelectorAll('button, td, div[class*="odds"]');
+              let nonLay = Array.from(allBoxes).filter(b => {
+                let cls = (b.className + " " + (b.parentElement?.className || '')).toLowerCase();
+                return !cls.includes('lay') && !cls.includes('pink') && !cls.includes('name');
+              });
+              if (nonLay.length > 0) {
+                mainBackBox = nonLay[nonLay.length - 1];
+              }
+            }
 
-              let lines = text.split(/\\s+|\\r?\\n/);
-              let mainRateStr = lines[0];
-              let rateVal = parseFloat(mainRateStr);
+            if (mainBackBox) {
+              let text = mainBackBox.innerText.trim();
+              if (text) {
+                let lines = text.split(/\\s+|\\r?\\n/);
+                let mainRateStr = lines[0];
+                let rateVal = parseFloat(mainRateStr);
 
-              if (!isNaN(rateVal)) {
-                let isMatch = false;
-                if (condition === '>=') {
-                  isMatch = (rateVal >= (target - 0.0001));
-                } else if (condition === '<=') {
-                  isMatch = (rateVal <= (target + 0.0001));
-                } else {
-                  isMatch = Math.abs(rateVal - target) < 0.001;
-                }
+                if (!isNaN(rateVal)) {
+                  let isMatch = false;
+                  if (condition === '>=') {
+                    isMatch = (rateVal >= (target - 0.0001));
+                  } else if (condition === '<=') {
+                    isMatch = (rateVal <= (target + 0.0001));
+                  } else {
+                    isMatch = Math.abs(rateVal - target) < 0.001;
+                  }
 
-                if (isMatch) {
-                  let isLay = /lay|pink/i.test(box.className) || /lay|pink/i.test(box.parentElement?.className || '');
-                  return JSON.stringify({
-                    found: true,
-                    team: teamName || filterTeam.toUpperCase(),
-                    type: isLay ? "Lay" : "Back",
-                    rate: mainRateStr
-                  });
+                  if (isMatch) {
+                    return JSON.stringify({
+                      found: true,
+                      team: teamName || filterTeam.toUpperCase(),
+                      type: "Back",
+                      rate: mainRateStr
+                    });
+                  }
                 }
               }
             }
@@ -245,6 +270,52 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
     });
   }
 
+  void _openCrexBottomSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.black87,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SizedBox(
+          height: MediaQuery.of(context).size.height * 0.88,
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.blueGrey[900],
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text("🏏 Crex Live Scores", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white),
+                      onPressed: () => Navigator.pop(ctx),
+                    )
+                  ],
+                ),
+              ),
+              Expanded(
+                child: InAppWebView(
+                  initialUrlRequest: URLRequest(url: WebUri(crexUrl)),
+                  initialSettings: InAppWebViewSettings(
+                    javaScriptEnabled: true,
+                    domStorageEnabled: true,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   void dispose() {
     stopAlarm();
@@ -262,8 +333,18 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.blueGrey[900],
-        title: const Text("🏏 Live Odds Alarm", style: TextStyle(color: Colors.white, fontSize: 18)),
+        title: const Text("🏏 Live Odds Alarm", style: TextStyle(color: Colors.white, fontSize: 17)),
         actions: [
+          TextButton.icon(
+            style: TextButton.styleFrom(
+              backgroundColor: Colors.amber[700],
+              foregroundColor: Colors.black,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            ),
+            icon: const Icon(Icons.sports_cricket, size: 18),
+            label: const Text("Crex", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            onPressed: () => _openCrexBottomSheet(context),
+          ),
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
             onPressed: () => webViewController?.reload(),
@@ -279,14 +360,13 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
               children: [
                 Row(
                   children: [
-                    // 1. టీం బాక్స్
                     Expanded(
                       flex: 4,
                       child: TextField(
                         controller: _teamController,
                         style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
                         decoration: InputDecoration(
-                          hintText: "టీం (lea)",
+                          hintText: "టీం (ఉదా: IND)",
                           hintStyle: const TextStyle(color: Colors.white54, fontSize: 11),
                           filled: true,
                           fillColor: Colors.black38,
@@ -297,10 +377,8 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
                       ),
                     ),
                     const SizedBox(width: 4),
-
-                    // 2. కండిషన్ ఎంపిక (>= దాటినా, <= పడిపోయినా, = సరిగ్గా అదే)
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
                       decoration: BoxDecoration(
                         color: Colors.black38,
                         borderRadius: BorderRadius.circular(8),
@@ -310,19 +388,18 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
                         child: DropdownButton<String>(
                           value: selectedCondition,
                           dropdownColor: Colors.grey[900],
-                          style: const TextStyle(color: Colors.yellowAccent, fontWeight: FontWeight.bold, fontSize: 14),
-                          icon: const Icon(Icons.arrow_drop_down, color: Colors.white70, size: 16),
+                          icon: const Icon(Icons.arrow_drop_down, color: Colors.white70, size: 18),
                           selectedItemBuilder: (BuildContext context) {
                             return [
-                              const Center(child: Text("≥", style: TextStyle(color: Colors.yellowAccent, fontWeight: FontWeight.bold, fontSize: 15))),
-                              const Center(child: Text("≤", style: TextStyle(color: Colors.yellowAccent, fontWeight: FontWeight.bold, fontSize: 15))),
-                              const Center(child: Text("=", style: TextStyle(color: Colors.yellowAccent, fontWeight: FontWeight.bold, fontSize: 15))),
+                              Center(child: Text(condSymbol, style: const TextStyle(color: Colors.yellowAccent, fontWeight: FontWeight.bold, fontSize: 16))),
+                              Center(child: Text(condSymbol, style: const TextStyle(color: Colors.yellowAccent, fontWeight: FontWeight.bold, fontSize: 16))),
+                              Center(child: Text(condSymbol, style: const TextStyle(color: Colors.yellowAccent, fontWeight: FontWeight.bold, fontSize: 16))),
                             ];
                           },
                           items: const [
-                            DropdownMenuItem(value: ">=", child: Text("≥ దాటినా / ఎక్కువ")),
-                            DropdownMenuItem(value: "<=", child: Text("≤ తగ్గినా / పడినా")),
-                            DropdownMenuItem(value: "==", child: Text("= ఖచ్చితంగా అదే")),
+                            DropdownMenuItem(value: ">=", child: Text("≥ దాటినా", style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold))),
+                            DropdownMenuItem(value: "<=", child: Text("≤ తగ్గినా", style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold))),
+                            DropdownMenuItem(value: "==", child: Text("= అదే", style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold))),
                           ],
                           onChanged: (val) {
                             if (val != null) {
@@ -335,8 +412,6 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
                       ),
                     ),
                     const SizedBox(width: 4),
-
-                    // 3. రేటు బాక్స్
                     Expanded(
                       flex: 4,
                       child: TextField(
@@ -355,8 +430,6 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
                       ),
                     ),
                     const SizedBox(width: 4),
-
-                    // 4. బటన్
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: isAlarmRinging ? Colors.black : (isAlarmSet ? Colors.orange[800] : Colors.green[700]),
@@ -377,8 +450,8 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
                             targetTeam = _teamController.text.trim();
                             isAlarmSet = true;
                             currentStatus = targetTeam.isNotEmpty
-                                ? "🟢 $targetTeam వద్ద రేటు $condSymbol $targetRate కోసం ట్రాకింగ్..."
-                                : "🟢 రేటు $condSymbol $targetRate కోసం ట్రాకింగ్...";
+                                ? "🟢 $targetTeam (Back $condSymbol $targetRate) కోసం ట్రాకింగ్..."
+                                : "🟢 Back $condSymbol $targetRate కోసం ట్రాకింగ్...";
                           });
                           startMonitoring();
                         }
