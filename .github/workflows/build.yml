@@ -28,7 +28,7 @@ jobs:
       - name: Prepare Android Project
         run: |
           if [ ! -d "android" ]; then
-            flutter create . --platforms=android --org com.cricket.alert
+            flutter create . --platforms=android --org com.cricket.alert --project-name cricket_alert_app
           fi
           if ! grep -q "android.permission.INTERNET" android/app/src/main/AndroidManifest.xml; then
             sed -i '/<manifest/a \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.WAKE_LOCK"/>' android/app/src/main/AndroidManifest.xml
