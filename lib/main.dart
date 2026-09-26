@@ -25,30 +25,50 @@ class OddsWebViewApp extends StatefulWidget {
 class _OddsWebViewAppState extends State<OddsWebViewApp> {
   InAppWebViewController? webViewController;
   final TextEditingController _rateController = TextEditingController();
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  final TextEditingController _teamController = TextEditingController();
+  
+  final AudioPlayer _alarmPlayer = AudioPlayer();
+  final AudioPlayer _silentKeepAlivePlayer = AudioPlayer();
 
   bool isAlarmSet = false;
   bool isAlarmRinging = false;
   double? targetRate;
+  String targetTeam = "";
   Timer? _rateCheckTimer;
   String currentStatus = "వెబ్‌సైట్ సిద్ధంగా ఉంది";
   String matchedInfo = "";
+  
   Uint8List? _beepBytes;
+  Uint8List? _silentBytes;
 
   @override
   void initState() {
     super.initState();
     _beepBytes = _generateLoudBeepWav();
-    _audioPlayer.setReleaseMode(ReleaseMode.loop);
-    _audioPlayer.setVolume(1.0);
+    _silentBytes = _generateSilentWav();
+
+    // స్క్రీన్ లాక్ అయినా, సైలెంట్‌లో ఉన్నా ఆడియో ఆగకుండా రన్ అయ్యేలా ఆండ్రాయిడ్ కాంటెక్స్ట్ సెట్టింగ్
+    AudioPlayer.global.setAudioContext(AudioContext(
+      android: AudioContextAndroid(
+        isSpeakerphoneOn: true,
+        stayAwake: true, // లాక్ స్క్రీన్‌లో కూడా CPU నిద్రపోకుండా ఉంచుతుంది
+        contentType: AndroidContentType.music,
+        usageType: AndroidUsageType.alarm,
+        audioMode: AndroidAudioMode.normal,
+      ),
+    ));
+
+    _alarmPlayer.setReleaseMode(ReleaseMode.loop);
+    _alarmPlayer.setVolume(1.0);
+    _silentKeepAlivePlayer.setReleaseMode(ReleaseMode.loop);
+    _silentKeepAlivePlayer.setVolume(0.01);
   }
 
-  // చెవులు పగిలే లౌడ్ ఎలక్ట్రానిక్ బీప్ సౌండ్ (Offline Loud Buzzer)
-  Uint8List _generateLoudBeepWav() {
+  // 1. నిశ్శబ్ద ఆడియో - స్క్రీన్ ఆఫ్ అయినా ప్రాసెసర్‌ను మేల్కొల్పి ఉంచడానికి
+  Uint8List _generateSilentWav() {
     const int sampleRate = 44100;
     const double duration = 1.0;
     final int numSamples = (sampleRate * duration).toInt();
-    const double frequency = 1200.0;
     final int dataSize = numSamples * 2;
     final int fileSize = 36 + dataSize;
 
@@ -58,18 +78,44 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
     byteData.setUint8(8, 0x57); byteData.setUint8(9, 0x41); byteData.setUint8(10, 0x56); byteData.setUint8(11, 0x45); // WAVE
     byteData.setUint8(12, 0x66); byteData.setUint8(13, 0x6D); byteData.setUint8(14, 0x74); byteData.setUint8(15, 0x20); // fmt
     byteData.setUint32(16, 16, Endian.little);
-    byteData.setUint16(20, 1, Endian.little); // PCM
-    byteData.setUint16(22, 1, Endian.little); // Mono
+    byteData.setUint16(20, 1, Endian.little);
+    byteData.setUint16(22, 1, Endian.little);
     byteData.setUint32(24, sampleRate, Endian.little);
     byteData.setUint32(28, sampleRate * 2, Endian.little);
     byteData.setUint16(32, 2, Endian.little);
     byteData.setUint16(34, 16, Endian.little);
     byteData.setUint8(36, 0x64); byteData.setUint8(37, 0x61); byteData.setUint8(38, 0x74); byteData.setUint8(39, 0x61); // data
     byteData.setUint32(40, dataSize, Endian.little);
+    return byteData.buffer.asUint8List();
+  }
+
+  // 2. లౌడ్ బీప్ బజర్ సౌండ్
+  Uint8List _generateLoudBeepWav() {
+    const int sampleRate = 44100;
+    const double duration = 1.0;
+    final int numSamples = (sampleRate * duration).toInt();
+    const double frequency = 1200.0;
+    final int dataSize = numSamples * 2;
+    final int fileSize = 36 + dataSize;
+
+    final byteData = ByteData(44 + dataSize);
+    byteData.setUint8(0, 0x52); byteData.setUint8(1, 0x49); byteData.setUint8(2, 0x46); byteData.setUint8(3, 0x46);
+    byteData.setUint32(4, fileSize, Endian.little);
+    byteData.setUint8(8, 0x57); byteData.setUint8(9, 0x41); byteData.setUint8(10, 0x56); byteData.setUint8(11, 0x45);
+    byteData.setUint8(12, 0x66); byteData.setUint8(13, 0x6D); byteData.setUint8(14, 0x74); byteData.setUint8(15, 0x20);
+    byteData.setUint32(16, 16, Endian.little);
+    byteData.setUint16(20, 1, Endian.little);
+    byteData.setUint16(22, 1, Endian.little);
+    byteData.setUint32(24, sampleRate, Endian.little);
+    byteData.setUint32(28, sampleRate * 2, Endian.little);
+    byteData.setUint16(32, 2, Endian.little);
+    byteData.setUint16(34, 16, Endian.little);
+    byteData.setUint8(36, 0x64); byteData.setUint8(37, 0x61); byteData.setUint8(38, 0x74); byteData.setUint8(39, 0x61);
+    byteData.setUint32(40, dataSize, Endian.little);
 
     for (int i = 0; i < numSamples; i++) {
       double t = i / sampleRate;
-      bool isBeep = (t % 0.4) < 0.25; // బీప్ - బీప్ పల్స్
+      bool isBeep = (t % 0.4) < 0.25;
       int sample = 0;
       if (isBeep) {
         double sinVal = math.sin(2 * math.pi * frequency * t);
@@ -84,22 +130,26 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
     WakelockPlus.enable();
     _rateCheckTimer?.cancel();
 
+    // లాక్ స్క్రీన్ మరియు బ్యాక్‌గ్రౌండ్ కోసం సైలెంట్ ఆడియో స్టార్ట్
+    if (_silentBytes != null) {
+      _silentKeepAlivePlayer.play(BytesSource(_silentBytes!));
+    }
+
     _rateCheckTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
       if (webViewController == null || !isAlarmSet || targetRate == null) return;
 
-      // కేవలం Back & Lay మెయిన్ రేట్లను మాత్రమే ఫిల్టర్ చేసే ప్రత్యేక స్క్రిప్ట్
+      String teamQuery = targetTeam.replaceAll("'", "\\'").toLowerCase();
+
       var result = await webViewController!.evaluateJavascript(source: """
         (function() {
           let target = $targetRate;
+          let filterTeam = '$teamQuery';
 
-          // పైన ఉన్న స్కోర్‌బోర్డులు, హెడర్లు కాకుండా కేవలం ఆడ్స్ రోస్ (Odds Rows) మాత్రమే వెతకడం
           let rows = document.querySelectorAll('tr, .runner-row, div[class*="runner"], div[class*="market-row"]');
 
           for (let row of rows) {
-            // స్కోర్‌బోర్డ్ సెక్షన్‌ను పూర్తిగా వదిలేయడం
             if (row.closest('.scoreboard, .match-header, .score, thead')) continue;
 
-            // టీం / ప్లేయర్ పేరును గుర్తించడం
             let teamName = "";
             let nameEl = row.querySelector('.runner-name, .team-name, .nation-name, span[class*="name"]');
             if (nameEl) {
@@ -114,24 +164,27 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
               }
             }
 
-            // కేవలం Back & Lay బాక్సులను మాత్రమే తనిఖీ చేయడం
+            if (filterTeam.length > 0) {
+              if (!teamName.toLowerCase().includes(filterTeam)) {
+                continue; 
+              }
+            }
+
             let oddsBoxes = row.querySelectorAll('button, td, div[class*="back"], div[class*="lay"]');
 
             for (let box of oddsBoxes) {
               let text = box.innerText.trim();
               if (!text) continue;
 
-              // బాక్స్‌లోని మొదటి లైన్ మాత్రమే (ఇదే అసలైన రేట్, కింద ఉండే అమౌంట్ కాదు)
               let lines = text.split(/\\s+|\\r?\\n/);
-              let mainRateStr = lines[0]; // ఉదా: 1.08 లేదా 1.09
+              let mainRateStr = lines[0];
               let rateVal = parseFloat(mainRateStr);
 
-              // మనం ఇచ్చిన టార్గెట్ రేటుతో సరిగ్గా సమానమైతే మాత్రమే
               if (!isNaN(rateVal) && Math.abs(rateVal - target) < 0.001) {
                 let isLay = /lay|pink/i.test(box.className) || /lay|pink/i.test(box.parentElement?.className || '');
                 return JSON.stringify({
                   found: true,
-                  team: teamName || "ప్లేయర్/టీం",
+                  team: teamName || filterTeam.toUpperCase(),
                   type: isLay ? "Lay" : "Back",
                   rate: mainRateStr
                 });
@@ -154,6 +207,9 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
   }
 
   void triggerAlarm(String team, String type, String rate) async {
+    // సైలెంట్ ట్రాక్ ఆపి, పెద్ద అలారమ్ ఆన్ చేయడం
+    await _silentKeepAlivePlayer.stop();
+
     setState(() {
       isAlarmRinging = true;
       matchedInfo = "$team ($type: $rate)";
@@ -161,12 +217,13 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
     });
 
     if (_beepBytes != null) {
-      await _audioPlayer.play(BytesSource(_beepBytes!), volume: 1.0);
+      await _alarmPlayer.play(BytesSource(_beepBytes!), volume: 1.0);
     }
   }
 
   void stopAlarm() async {
-    await _audioPlayer.stop();
+    await _silentKeepAlivePlayer.stop();
+    await _alarmPlayer.stop();
     _rateCheckTimer?.cancel();
     WakelockPlus.disable();
 
@@ -182,7 +239,9 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
   void dispose() {
     stopAlarm();
     _rateController.dispose();
-    _audioPlayer.dispose();
+    _teamController.dispose();
+    _alarmPlayer.dispose();
+    _silentKeepAlivePlayer.dispose();
     super.dispose();
   }
 
@@ -202,34 +261,52 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
       body: Column(
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             color: isAlarmRinging ? Colors.red[800] : Colors.blueGrey[800],
             child: Column(
               children: [
                 Row(
                   children: [
                     Expanded(
+                      flex: 4,
                       child: TextField(
-                        controller: _rateController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                        controller: _teamController,
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
                         decoration: InputDecoration(
-                          hintText: "టార్గెట్ రేట్ (ఉదా: 1.08 లేదా 1.09)",
-                          hintStyle: const TextStyle(color: Colors.white54, fontSize: 13),
+                          hintText: "టీం (ఉదా: IND)",
+                          hintStyle: const TextStyle(color: Colors.white54, fontSize: 11),
                           filled: true,
                           fillColor: Colors.black38,
                           isDense: true,
-                          contentPadding: const EdgeInsets.all(10),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      flex: 3,
+                      child: TextField(
+                        controller: _rateController,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                        decoration: InputDecoration(
+                          hintText: "రేటు (1.08)",
+                          hintStyle: const TextStyle(color: Colors.white54, fontSize: 11),
+                          filled: true,
+                          fillColor: Colors.black38,
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: isAlarmRinging ? Colors.black : (isAlarmSet ? Colors.orange[800] : Colors.green[700]),
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       ),
                       onPressed: () {
                         if (isAlarmRinging) {
@@ -242,15 +319,18 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
                           FocusScope.of(context).unfocus();
                           setState(() {
                             targetRate = entered;
+                            targetTeam = _teamController.text.trim();
                             isAlarmSet = true;
-                            currentStatus = "🟢 రేటు $targetRate కోసం ట్రాకింగ్ జరుగుతోంది...";
+                            currentStatus = targetTeam.isNotEmpty
+                                ? "🟢 $targetTeam వద్ద రేటు $targetRate కోసం ట్రాకింగ్ (బ్యాక్‌గ్రౌండ్‌లో రన్ అవుతుంది)..."
+                                : "🟢 రేటు $targetRate కోసం ట్రాకింగ్ (బ్యాక్‌గ్రౌండ్‌లో రన్ అవుతుంది)...";
                           });
                           startMonitoring();
                         }
                       },
                       child: Text(
-                        isAlarmRinging ? "STOP ALARM" : (isAlarmSet ? "CANCEL" : "SET ALARM"),
-                        style: const TextStyle(fontWeight: FontWeight.bold),
+                        isAlarmRinging ? "STOP" : (isAlarmSet ? "CANCEL" : "SET"),
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                       ),
                     ),
                   ],
@@ -277,6 +357,7 @@ class _OddsWebViewAppState extends State<OddsWebViewApp> {
                 javaScriptEnabled: true,
                 domStorageEnabled: true,
                 cacheEnabled: true,
+                mediaPlaybackRequiresUserGesture: false,
               ),
               onWebViewCreated: (controller) {
                 webViewController = controller;
