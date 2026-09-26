@@ -8,43 +8,40 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Java
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
+          distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Flutter
+      - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
           cache: true
 
-      - name: Create Project & Configure
+      - name: Prepare Android Project
         run: |
-          mkdir -p backup_lib
-          cp -r lib backup_lib/ 2>/dev/null || true
-          flutter create --project-name cricket_alert_app --org com.cricket.alert .
-          flutter pub add http flutter_ringtone_player
-          if [ -d backup_lib/lib ]; then
-            cp -r backup_lib/lib .
+          if [ ! -d "android" ]; then
+            flutter create . --platforms=android --org com.cricket.alert
           fi
-          sed -i '/<application/i <uses-permission android:name="android.permission.INTERNET"/>\n<uses-permission android:name="android.permission.WAKE_LOCK"/>\n<uses-permission android:name="android.permission.VIBRATE"/>\n<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>' android/app/src/main/AndroidManifest.xml
-          echo "android.experimental.disableCompileSdkChecks=true" >> android/gradle.properties
-          find /home/runner/.pub-cache -name "build.gradle" -exec sed -i 's/compileSdkVersion 33/compileSdkVersion 34/g' {} + 2>/dev/null || true
-          find /home/runner/.pub-cache -name "build.gradle.kts" -exec sed -i 's/compileSdk = 33/compileSdk = 34/g' {} + 2>/dev/null || true
-          sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 34/g' android/app/build.gradle 2>/dev/null || true
-          sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 34/g' android/app/build.gradle.kts 2>/dev/null || true
+          if ! grep -q "android.permission.INTERNET" android/app/src/main/AndroidManifest.xml; then
+            sed -i '/<manifest/a \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.WAKE_LOCK"/>' android/app/src/main/AndroidManifest.xml
+          fi
 
-      - name: Build Release APK
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Build APK
         run: flutter build apk --release
 
-      - name: Upload APK
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CricketAlert-APK
+          name: cricket-odds-alarm-apk
           path: build/app/outputs/flutter-apk/app-release.apk
