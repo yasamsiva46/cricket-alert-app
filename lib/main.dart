@@ -10,19 +10,19 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const MaterialApp(
-    home: CrexOddsAlarmApp(),
+    home: CrexProOddsApp(),
     debugShowCheckedModeBanner: false,
   ));
 }
 
-class CrexOddsAlarmApp extends StatefulWidget {
-  const CrexOddsAlarmApp({super.key});
+class CrexProOddsApp extends StatefulWidget {
+  const CrexProOddsApp({super.key});
 
   @override
-  State<CrexOddsAlarmApp> createState() => _CrexOddsAlarmAppState();
+  State<CrexProOddsApp> createState() => _CrexProOddsAppState();
 }
 
-class _CrexOddsAlarmAppState extends State<CrexOddsAlarmApp> {
+class _CrexProOddsAppState extends State<CrexProOddsApp> {
   InAppWebViewController? webViewController;
   final TextEditingController _rateController = TextEditingController();
   final TextEditingController _teamController = TextEditingController();
@@ -32,11 +32,12 @@ class _CrexOddsAlarmAppState extends State<CrexOddsAlarmApp> {
 
   bool isAlarmSet = false;
   bool isAlarmRinging = false;
+  bool isBlackScreenActive = false; // నైట్ మోడ్ ఫ్లాగ్
   double? targetRate;
   String targetTeam = "";
   String selectedCondition = ">=";
   Timer? _rateCheckTimer;
-  String currentStatus = "Crex సిద్ధంగా ఉంది";
+  String currentStatus = "Crex Live Ready";
   String matchedInfo = "";
   
   Uint8List? _beepBytes;
@@ -151,7 +152,6 @@ class _CrexOddsAlarmAppState extends State<CrexOddsAlarmApp> {
 
           for (let el of allContainers) {
             if (el.children.length === 0 || el.children.length > 12) continue;
-
             let fullTxt = el.innerText ? el.innerText.trim() : '';
             if (!fullTxt) continue;
 
@@ -183,7 +183,6 @@ class _CrexOddsAlarmAppState extends State<CrexOddsAlarmApp> {
             });
 
             let words = teamOnlyText.split(/[^a-zA-Z0-9]+/).filter(w => w.length > 0);
-            
             let isTeamMatched = false;
             if (filterTeam.length > 0) {
               isTeamMatched = words.some(w => w === filterTeam || (filterTeam.length >= 3 && w.includes(filterTeam)));
@@ -197,7 +196,6 @@ class _CrexOddsAlarmAppState extends State<CrexOddsAlarmApp> {
               let num = parseFloat(valStr);
               if (isNaN(num)) continue;
 
-              // 1. కేవలం టీమ్ మాత్రమే సెట్ చేసినప్పుడు (రేటు ఏదైనా సరే మోగుతుంది)
               if (target === null) {
                 return JSON.stringify({
                   found: true,
@@ -207,7 +205,6 @@ class _CrexOddsAlarmAppState extends State<CrexOddsAlarmApp> {
                 });
               }
 
-              // 2. టీమ్ + రేటు రెండూ సెట్ చేసినప్పుడు
               let isMatch = false;
               if (condition === '>=') {
                 isMatch = (num >= (target - 0.0001));
@@ -250,13 +247,14 @@ class _CrexOddsAlarmAppState extends State<CrexOddsAlarmApp> {
     await _silentKeepAlivePlayer.stop();
 
     setState(() {
+      isBlackScreenActive = false; // అలారమ్ మోగగానే నల్ల తెర తొలగిపోతుంది
       isAlarmRinging = true;
       if (onlyTeam) {
-        matchedInfo = "$team లైవ్ రేట్లలోకి వచ్చింది! (రేటు: $rate)";
+        matchedInfo = "$team మార్కెట్‌లోకి వచ్చింది! ($rate)";
         currentStatus = "🚨 $matchedInfo";
       } else {
         matchedInfo = "$team (రేటు: $rate)";
-        currentStatus = "🚨 రేటు వచ్చింది: $matchedInfo";
+        currentStatus = "🚨 రేటు తాకింది: $matchedInfo";
       }
     });
 
@@ -274,9 +272,25 @@ class _CrexOddsAlarmAppState extends State<CrexOddsAlarmApp> {
     setState(() {
       isAlarmRinging = false;
       isAlarmSet = false;
+      isBlackScreenActive = false;
       matchedInfo = "";
       currentStatus = "అలారమ్ ఆఫ్ చేయబడింది";
     });
+  }
+
+  void testSound() async {
+    if (isAlarmRinging) {
+      stopAlarm();
+      return;
+    }
+    if (_beepBytes != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("🔊 సౌండ్ టెస్ట్ అవుతోంది..."), duration: Duration(seconds: 2)),
+      );
+      await _alarmPlayer.play(BytesSource(_beepBytes!), volume: 1.0);
+      await Future.delayed(const Duration(seconds: 3));
+      await _alarmPlayer.stop();
+    }
   }
 
   @override
@@ -294,211 +308,185 @@ class _CrexOddsAlarmAppState extends State<CrexOddsAlarmApp> {
     bool isUp = selectedCondition == ">=";
 
     return Scaffold(
+      backgroundColor: const Color(0xFF0A0E1A),
       appBar: AppBar(
-        backgroundColor: Colors.blueGrey[900],
-        title: const Text("🏏 Crex Odds Alarm", style: TextStyle(color: Colors.white, fontSize: 18)),
+        backgroundColor: const Color(0xFF131B2E),
+        elevation: 0,
+        title: Row(
+          children: [
+            const Icon(Icons.bolt, color: Color(0xFF00FFA3), size: 22),
+            const SizedBox(width: 6),
+            const Text(
+              "CREX PRO",
+              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1.1),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.amber.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: Colors.amber, width: 0.8),
+              ),
+              child: const Text("PRO", style: TextStyle(color: Colors.amber, fontSize: 10, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
         actions: [
+          // 🌙 నైట్ మోడ్ (బ్లాక్ స్క్రీన్) బటన్
           IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.white),
+            icon: const Icon(Icons.nightlight_round, color: Colors.cyanAccent),
+            tooltip: "నైట్ మోడ్ (బ్లాక్ స్క్రీన్)",
+            onPressed: () {
+              setState(() {
+                isBlackScreenActive = true;
+              });
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.volume_up, color: Colors.amber),
+            tooltip: "సౌండ్ టెస్ట్",
+            onPressed: testSound,
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.white70),
             onPressed: () => webViewController?.reload(),
           )
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            color: isAlarmRinging ? Colors.red[800] : Colors.blueGrey[800],
-            child: Column(
-              children: [
-                Row(
+          // మెయిన్ యాప్ కంటెంట్
+          Column(
+            children: [
+              // ప్రో కంట్రోలర్ బార్
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                decoration: BoxDecoration(
+                  color: isAlarmRinging ? Colors.red[900] : const Color(0xFF131B2E),
+                  border: Border(bottom: BorderSide(color: isAlarmRinging ? Colors.redAccent : const Color(0xFF263352))),
+                ),
+                child: Column(
                   children: [
-                    // 1. టీం బాక్స్
-                    Expanded(
-                      flex: 4,
-                      child: TextField(
-                        controller: _teamController,
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
-                        decoration: InputDecoration(
-                          hintText: "టీం (BT/RS)",
-                          hintStyle: const TextStyle(color: Colors.white54, fontSize: 11),
-                          filled: true,
-                          fillColor: Colors.black38,
-                          isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    Row(
+                      children: [
+                        // టీం బాక్స్
+                        Expanded(
+                          flex: 4,
+                          child: TextField(
+                            controller: _teamController,
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                            decoration: InputDecoration(
+                              hintText: "టీం (RS/BT)",
+                              hintStyle: const TextStyle(color: Colors.white38, fontSize: 11),
+                              filled: true,
+                              fillColor: const Color(0xFF0A0E1A),
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                    const SizedBox(width: 4),
+                        const SizedBox(width: 4),
 
-                    // 2. ↑ (పెరిగితే) / ↓ (తగ్గితే)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.black38,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.white24),
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: selectedCondition,
-                          dropdownColor: Colors.grey[900],
-                          icon: const Icon(Icons.arrow_drop_down, color: Colors.white70, size: 16),
-                          selectedItemBuilder: (BuildContext context) {
-                            return [
-                              Center(
-                                child: Text(
-                                  isUp ? "↑" : "↓",
-                                  style: TextStyle(
-                                    color: isUp ? Colors.greenAccent : Colors.redAccent,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 20,
-                                  ),
-                                ),
-                              ),
-                              Center(
-                                child: Text(
-                                  isUp ? "↑" : "↓",
-                                  style: TextStyle(
-                                    color: isUp ? Colors.greenAccent : Colors.redAccent,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 20,
-                                  ),
-                                ),
-                              ),
-                            ];
-                          },
-                          items: const [
-                            DropdownMenuItem(
-                              value: ">=",
-                              child: Row(
-                                children: [
-                                  Text("↑", style: TextStyle(color: Colors.greenAccent, fontSize: 20, fontWeight: FontWeight.bold)),
-                                  SizedBox(width: 6),
-                                  Text("పెరిగితే", style: TextStyle(color: Colors.white, fontSize: 13)),
-                                ],
-                              ),
+                        // ↑ / ↓ సెలెక్టర్
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0A0E1A),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              value: selectedCondition,
+                              dropdownColor: const Color(0xFF131B2E),
+                              icon: const Icon(Icons.arrow_drop_down, color: Colors.white54, size: 16),
+                              selectedItemBuilder: (BuildContext context) {
+                                return [
+                                  Center(child: Text(isUp ? "↑" : "↓", style: TextStyle(color: isUp ? const Color(0xFF00FFA3) : Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 19))),
+                                  Center(child: Text(isUp ? "↑" : "↓", style: TextStyle(color: isUp ? const Color(0xFF00FFA3) : Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 19))),
+                                ];
+                              },
+                              items: const [
+                                DropdownMenuItem(value: ">=", child: Text("↑ పెరిగితే", style: TextStyle(color: Color(0xFF00FFA3), fontSize: 12))),
+                                DropdownMenuItem(value: "<=", child: Text("↓ తగ్గితే", style: TextStyle(color: Colors.redAccent, fontSize: 12))),
+                              ],
+                              onChanged: (val) {
+                                if (val != null) setState(() => selectedCondition = val);
+                              },
                             ),
-                            DropdownMenuItem(
-                              value: "<=",
-                              child: Row(
-                                children: [
-                                  Text("↓", style: TextStyle(color: Colors.redAccent, fontSize: 20, fontWeight: FontWeight.bold)),
-                                  SizedBox(width: 6),
-                                  Text("తగ్గితే", style: TextStyle(color: Colors.white, fontSize: 13)),
-                                ],
-                              ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+
+                        // రేటు బాక్స్
+                        Expanded(
+                          flex: 4,
+                          child: TextField(
+                            controller: _rateController,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                            decoration: InputDecoration(
+                              hintText: "రేటు (ఆప్షనల్)",
+                              hintStyle: const TextStyle(color: Colors.white38, fontSize: 9),
+                              filled: true,
+                              fillColor: const Color(0xFF0A0E1A),
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
                             ),
-                          ],
-                          onChanged: (val) {
-                            if (val != null) {
-                              setState(() {
-                                selectedCondition = val;
-                              });
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+
+                        // SET / STOP బటన్
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: isAlarmRinging ? Colors.white : (isAlarmSet ? Colors.orange[800] : const Color(0xFF00FFA3)),
+                            foregroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onPressed: () {
+                            if (isAlarmRinging) {
+                              stopAlarm();
+                              return;
                             }
+
+                            String teamEntered = _teamController.text.trim();
+                            double? rateEntered = double.tryParse(_rateController.text.trim());
+
+                            if (teamEntered.isEmpty && rateEntered == null) return;
+
+                            FocusScope.of(context).unfocus();
+                            setState(() {
+                              targetRate = rateEntered;
+                              targetTeam = teamEntered;
+                              isAlarmSet = true;
+
+                              if (rateEntered == null) {
+                                currentStatus = "🟢 $targetTeam మార్కెట్‌లోకి రాగానే అలారమ్...";
+                              } else {
+                                String arrowText = selectedCondition == ">=" ? "↑ పెరిగితే" : "↓ తగ్గితే";
+                                currentStatus = targetTeam.isNotEmpty
+                                    ? "🟢 $targetTeam రేటు $targetRate ($arrowText) అలారమ్..."
+                                    : "🟢 రేటు $targetRate ($arrowText) అలారమ్...";
+                              }
+                            });
+                            startMonitoring();
                           },
+                          child: Text(
+                            isAlarmRinging ? "STOP" : (isAlarmSet ? "CANCEL" : "SET"),
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
-                    const SizedBox(width: 4),
-
-                    // 3. రేటు బాక్స్ (ఆప్షనల్)
-                    Expanded(
-                      flex: 4,
-                      child: TextField(
-                        controller: _rateController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
-                        decoration: InputDecoration(
-                          hintText: "రేటు (ఆప్షనల్)",
-                          hintStyle: const TextStyle(color: Colors.white54, fontSize: 10),
-                          filled: true,
-                          fillColor: Colors.black38,
-                          isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-
-                    // 4. బటన్
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: isAlarmRinging ? Colors.black : (isAlarmSet ? Colors.orange[800] : Colors.green[700]),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                      ),
-                      onPressed: () {
-                        if (isAlarmRinging) {
-                          stopAlarm();
-                          return;
-                        }
-
-                        String teamEntered = _teamController.text.trim();
-                        double? rateEntered = double.tryParse(_rateController.text.trim());
-
-                        if (teamEntered.isEmpty && rateEntered == null) {
-                          return;
-                        }
-
-                        FocusScope.of(context).unfocus();
-                        setState(() {
-                          targetRate = rateEntered;
-                          targetTeam = teamEntered;
-                          isAlarmSet = true;
-
-                          if (rateEntered == null) {
-                            currentStatus = "🟢 $targetTeam లైవ్ రేట్లలోకి రాగానే అలారమ్...";
-                          } else {
-                            String arrowText = selectedCondition == ">=" ? "↑ పెరిగితే" : "↓ తగ్గితే";
-                            currentStatus = targetTeam.isNotEmpty
-                                ? "🟢 $targetTeam వద్ద రేటు $targetRate ($arrowText) అలారమ్..."
-                                : "🟢 రేటు $targetRate ($arrowText) అలారమ్...";
-                          }
-                        });
-                        startMonitoring();
-                      },
-                      child: Text(
-                        isAlarmRinging ? "STOP" : (isAlarmSet ? "CANCEL" : "SET"),
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  currentStatus,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: isAlarmRinging ? Colors.white : Colors.yellowAccent,
-                    fontSize: isAlarmRinging ? 14 : 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          Expanded(
-            child: InAppWebView(
-              initialUrlRequest: URLRequest(
-                url: WebUri("https://crex.com/"),
-              ),
-              initialSettings: InAppWebViewSettings(
-                javaScriptEnabled: true,
-                domStorageEnabled: true,
-                cacheEnabled: true,
-                mediaPlaybackRequiresUserGesture: false,
-              ),
-              onWebViewCreated: (controller) {
-                webViewController = controller;
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
+                    const SizedBox(height: 6),
+                    Text(
+                      currentStatus,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: isAlarmRinging ? Colors.white : const Color(0xFF00FFA3),
+                        fontSize: isAlarmRinging ? 13 : 11,
+                        fontWeight: Font
