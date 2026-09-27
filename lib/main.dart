@@ -133,7 +133,6 @@ class _CrexProOddsAppState extends State<CrexProOddsApp> {
       _silentKeepAlivePlayer.play(BytesSource(_silentBytes!));
     }
 
-    // బ్యాటరీ & హీట్ తగ్గించడానికి ప్రతి 2 సెకన్లకు ఒకసారి మాత్రమే చెక్ చేస్తుంది
     _rateCheckTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
       if (webViewController == null || !isAlarmSet) return;
       if (targetTeam.isEmpty && targetRate == null) return;
@@ -148,38 +147,42 @@ class _CrexProOddsAppState extends State<CrexProOddsApp> {
           let filterTeam = '__TEAM__';
           let condition = '__COND__';
 
-          // స్కోర్ బోర్డు, హెడర్, బౌలర్, బ్యాటర్, ఓవర్ల పదాలను పూర్తిగా బ్లాక్ చేసే లిస్ట్
-          const forbiddenRegex = /CRR|RRR|Over|Overs|Wicket|Wkt|W-R|Econ|Economy|Batter|Bowler|P'ship|Partnership|Last Wkt|Commentary|Scorecard|Match info|GET APP|Discussion|Points Table|\bvs\b|ODI|T20|Test|\bDay\b|Target|opt to bat|won the toss/i;
+          const forbiddenRegex = /CRR|RRR|Over|Overs|Wicket|Wkt|W-R|Econ|Economy|Batter|Bowler|P'ship|Partnership|Last Wkt|Commentary|Scorecard|Match info|GET APP|Discussion|Points Table|\bvs\b|ODI|T20|Test|\bDay\b|Target|opt to bat|won the toss|R\(B\)|4S|6S|SR/i;
 
           let allDivs = Array.from(document.querySelectorAll('div, tr, li'));
           let validOddsRows = [];
 
           for (let el of allDivs) {
-            if (el.children.length === 0 || el.children.length > 10) continue;
+            if (el.children.length === 0 || el.children.length > 8) continue;
 
             let fullText = (el.innerText || '').trim();
             if (!fullText) continue;
 
-            // ఓవర్లు లేదా స్కోర్ బోర్డు పదాలు ఉంటే వెంటనే రిజెక్ట్ చేయి
             if (forbiddenRegex.test(fullText)) continue;
-            if (fullText.includes('(') || fullText.includes(')') || fullText.includes('=')) continue;
+            if (fullText.includes('(') || fullText.includes(')') || fullText.includes('/') || fullText.includes('=')) continue;
 
             let leaves = Array.from(el.querySelectorAll('*')).filter(leaf => {
               return leaf.children.length === 0 && leaf.innerText && leaf.innerText.trim().length > 0;
             });
 
-            if (leaves.length < 2 || leaves.length > 8) continue;
+            if (leaves.length < 2 || leaves.length > 7) continue;
 
             let numberLeaves = [];
             let textLeaves = [];
 
             for (let leaf of leaves) {
               let txt = leaf.innerText.trim();
-              // కేవలం సరైన మార్కెట్ రేట్లను మాత్రమే లెక్కించు (1.01 నుండి 500 వరకు)
-              // 1.0 లాంటి ఓవర్లను ఇది తీసుకోదు
+              
               if (/^[0-9]+(\.[0-9]+)?$/.test(txt)) {
                 let n = parseFloat(txt);
-                if (!isNaN(n) && n > 1.01 && n <= 500) {
+                let isValidRate = false;
+                if (!txt.includes('.')) {
+                  if (n >= 1 && n <= 180) isValidRate = true;
+                } else {
+                  if (n >= 1.01 && n <= 20.0 && n !== 1.0) isValidRate = true;
+                }
+
+                if (isValidRate) {
                   numberLeaves.push({ element: leaf, val: n, str: txt });
                   continue;
                 }
@@ -187,8 +190,10 @@ class _CrexProOddsAppState extends State<CrexProOddsApp> {
               textLeaves.push(txt);
             }
 
-            // మార్కెట్ రేట్ల టేబుల్ లో ఖచ్చితంగా 1 లేదా 2 రేట్లు మరియు టీమ్ పేరు ఉంటాయి
-            if (numberLeaves.length >= 1 && numberLeaves.length <= 3 && textLeaves.length >= 1) {
+            if (numberLeaves.length === 2 && textLeaves.length >= 1) {
+              let diff = Math.abs(numberLeaves[0].val - numberLeaves[1].val);
+              if (diff > 15) continue;
+
               let combinedText = textLeaves.join(' ').toLowerCase();
               if (forbiddenRegex.test(combinedText)) continue;
 
@@ -215,22 +220,20 @@ class _CrexProOddsAppState extends State<CrexProOddsApp> {
               if (!isTeamMatched) continue;
             }
 
-            let displayTeam = row.teamLeaves[0] || filterTeam.toUpperCase();
-            let shortBadge = row.teamLeaves.find(t => t.length >= 2 && t.length <= 4 && /^[A-Z]+$/i.test(t));
-            if (shortBadge) displayTeam = shortBadge.toUpperCase();
+            let displayTeam = row.teamLeaves.find(t => t.length >= 2 && t.length <= 4 && /^[A-Z]+$/i.test(t)) || row.teamLeaves[0] || filterTeam.toUpperCase();
+            displayTeam = displayTeam.toUpperCase();
 
-            // రేటు ఇవ్వకపోతే - టీమ్ నిజంగా మార్కెట్ రేట్లలోకి రాగానే అలారమ్
+            let rateDisplay = row.odds[0].str + " - " + row.odds[1].str;
+
             if (target === null) {
-              let ratesSummary = row.odds.map(o => o.str).join(' - ');
               return JSON.stringify({
                 found: true,
                 team: displayTeam,
-                rate: ratesSummary,
+                rate: rateDisplay,
                 onlyTeam: true
               });
             }
 
-            // రేటు ఇస్తే - నిర్దిష్ట రేటు తాకినప్పుడు అలారమ్
             for (let o of row.odds) {
               let num = o.val;
               let isMatch = false;
@@ -244,7 +247,7 @@ class _CrexProOddsAppState extends State<CrexProOddsApp> {
                 return JSON.stringify({
                   found: true,
                   team: displayTeam,
-                  rate: o.str,
+                  rate: o.str + " (" + rateDisplay + ")",
                   onlyTeam: false
                 });
               }
@@ -401,7 +404,7 @@ class _CrexProOddsAppState extends State<CrexProOddsApp> {
                             controller: _teamController,
                             style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
                             decoration: InputDecoration(
-                              hintText: "టీం (RS/BT)",
+                              hintText: "టీం (IND/WI)",
                               hintStyle: const TextStyle(color: Colors.white38, fontSize: 11),
                               filled: true,
                               fillColor: const Color(0xFF0A0E1A),
@@ -484,4 +487,88 @@ class _CrexProOddsAppState extends State<CrexProOddsApp> {
 
                               if (rateEntered == null) {
                                 currentStatus = "🟢 $targetTeam మార్కెట్‌లోకి రాగానే అలారమ్...";
+                              } else {
+                                String arrowText = selectedCondition == ">=" ? "↑ పెరిగితే" : "↓ తగ్గితే";
+                                currentStatus = targetTeam.isNotEmpty
+                                    ? "🟢 $targetTeam రేటు $targetRate ($arrowText) అలారమ్..."
+                                    : "🟢 రేటు $targetRate ($arrowText) అలారమ్...";
                               }
+                            });
+                            startMonitoring();
+                          },
+                          child: Text(
+                            isAlarmRinging ? "STOP" : (isAlarmSet ? "CANCEL" : "SET"),
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      currentStatus,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: isAlarmRinging ? Colors.white : const Color(0xFF00FFA3),
+                        fontSize: isAlarmRinging ? 13 : 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: InAppWebView(
+                  initialUrlRequest: URLRequest(
+                    url: WebUri("https://crex.com/"),
+                  ),
+                  initialSettings: InAppWebViewSettings(
+                    javaScriptEnabled: true,
+                    domStorageEnabled: true,
+                    cacheEnabled: true,
+                    mediaPlaybackRequiresUserGesture: false,
+                  ),
+                  onWebViewCreated: (controller) {
+                    webViewController = controller;
+                  },
+                ),
+              ),
+            ],
+          ),
+          if (isBlackScreenActive)
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onDoubleTap: () {
+                setState(() {
+                  isBlackScreenActive = false;
+                });
+              },
+              child: Container(
+                color: Colors.black,
+                width: double.infinity,
+                height: double.infinity,
+                alignment: Alignment.center,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: const [
+                    Icon(Icons.nightlight_round, color: Colors.white12, size: 54),
+                    SizedBox(height: 16),
+                    Text(
+                      "నైట్ మోడ్ ఆన్‌లో ఉంది\n(Crex లైవ్‌లో రన్ అవుతోంది)",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white24, fontSize: 13, height: 1.4),
+                    ),
+                    SizedBox(height: 24),
+                    Text(
+                      "స్క్రీన్ ఆన్ చేయడానికి 2 సార్లు త్వరగా ట్యాప్ చేయండి\n(Double Tap to wake)",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white12, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
