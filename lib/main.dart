@@ -32,7 +32,7 @@ class _CrexProOddsAppState extends State<CrexProOddsApp> {
 
   bool isAlarmSet = false;
   bool isAlarmRinging = false;
-  bool isBlackScreenActive = false; // నైట్ మోడ్ ఫ్లాగ్
+  bool isBlackScreenActive = false;
   double? targetRate;
   String targetTeam = "";
   String selectedCondition = ">=";
@@ -247,7 +247,7 @@ class _CrexProOddsAppState extends State<CrexProOddsApp> {
     await _silentKeepAlivePlayer.stop();
 
     setState(() {
-      isBlackScreenActive = false; // అలారమ్ మోగగానే నల్ల తెర తొలగిపోతుంది
+      isBlackScreenActive = false;
       isAlarmRinging = true;
       if (onlyTeam) {
         matchedInfo = "$team మార్కెట్‌లోకి వచ్చింది! ($rate)";
@@ -333,7 +333,6 @@ class _CrexProOddsAppState extends State<CrexProOddsApp> {
           ],
         ),
         actions: [
-          // 🌙 నైట్ మోడ్ (బ్లాక్ స్క్రీన్) బటన్
           IconButton(
             icon: const Icon(Icons.nightlight_round, color: Colors.cyanAccent),
             tooltip: "నైట్ మోడ్ (బ్లాక్ స్క్రీన్)",
@@ -356,10 +355,8 @@ class _CrexProOddsAppState extends State<CrexProOddsApp> {
       ),
       body: Stack(
         children: [
-          // మెయిన్ యాప్ కంటెంట్
           Column(
             children: [
-              // ప్రో కంట్రోలర్ బార్
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                 decoration: BoxDecoration(
@@ -370,7 +367,6 @@ class _CrexProOddsAppState extends State<CrexProOddsApp> {
                   children: [
                     Row(
                       children: [
-                        // టీం బాక్స్
                         Expanded(
                           flex: 4,
                           child: TextField(
@@ -388,8 +384,6 @@ class _CrexProOddsAppState extends State<CrexProOddsApp> {
                           ),
                         ),
                         const SizedBox(width: 4),
-
-                        // ↑ / ↓ సెలెక్టర్
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 4),
                           decoration: BoxDecoration(
@@ -418,8 +412,6 @@ class _CrexProOddsAppState extends State<CrexProOddsApp> {
                           ),
                         ),
                         const SizedBox(width: 4),
-
-                        // రేటు బాక్స్
                         Expanded(
                           flex: 4,
                           child: TextField(
@@ -438,8 +430,6 @@ class _CrexProOddsAppState extends State<CrexProOddsApp> {
                           ),
                         ),
                         const SizedBox(width: 6),
-
-                        // SET / STOP బటన్
                         ElevatedButton(
                           style: ElevatedButton.styleFrom(
                             backgroundColor: isAlarmRinging ? Colors.white : (isAlarmSet ? Colors.orange[800] : const Color(0xFF00FFA3)),
@@ -489,4 +479,65 @@ class _CrexProOddsAppState extends State<CrexProOddsApp> {
                       style: TextStyle(
                         color: isAlarmRinging ? Colors.white : const Color(0xFF00FFA3),
                         fontSize: isAlarmRinging ? 13 : 11,
-                        fontWeight: Font
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: InAppWebView(
+                  initialUrlRequest: URLRequest(
+                    url: WebUri("https://crex.com/"),
+                  ),
+                  initialSettings: InAppWebViewSettings(
+                    javaScriptEnabled: true,
+                    domStorageEnabled: true,
+                    cacheEnabled: true,
+                    mediaPlaybackRequiresUserGesture: false,
+                  ),
+                  onWebViewCreated: (controller) {
+                    webViewController = controller;
+                  },
+                ),
+              ),
+            ],
+          ),
+          if (isBlackScreenActive)
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onDoubleTap: () {
+                setState(() {
+                  isBlackScreenActive = false;
+                });
+              },
+              child: Container(
+                color: Colors.black,
+                width: double.infinity,
+                height: double.infinity,
+                alignment: Alignment.center,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: const [
+                    Icon(Icons.nightlight_round, color: Colors.white12, size: 54),
+                    SizedBox(height: 16),
+                    Text(
+                      "నైట్ మోడ్ ఆన్‌లో ఉంది\n(Crex లైవ్‌లో రన్ అవుతోంది)",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white24, fontSize: 13, height: 1.4),
+                    ),
+                    SizedBox(height: 24),
+                    Text(
+                      "స్క్రీన్ ఆన్ చేయడానికి 2 సార్లు త్వరగా ట్యాప్ చేయండి\n(Double Tap to wake)",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white12, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
